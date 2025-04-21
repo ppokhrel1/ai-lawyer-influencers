@@ -2,3 +2,4 @@
 */documents/*
 */venv/*
 __pycache__/
+*/*.db
