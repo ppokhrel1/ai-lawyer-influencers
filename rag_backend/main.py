@@ -3,6 +3,8 @@ from langchain.document_loaders import DirectoryLoader, TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
 from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_core.documents import Document
+
 from langchain.chains import RetrievalQA
 from langchain import HuggingFacePipeline
 from langchain.schema import Document
@@ -36,7 +38,10 @@ if not os.path.exists(CHROMA_DIR):
     documents = loader.load()
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     texts = text_splitter.split_documents(documents)
-    vectordb = Chroma.from_documents(np.array(texts), np.array(embeddings), persist_directory=CHROMA_DIR)
+    if not texts: 
+        texts = ["your", "text", "data"] 
+        texts = [Document(page_content=text) for text in texts]
+    vectordb = Chroma.from_documents(texts, embeddings, persist_directory=CHROMA_DIR)
     vectordb.persist()
 else:
     vectordb = Chroma(persist_directory=CHROMA_DIR, embedding_function=embeddings)
