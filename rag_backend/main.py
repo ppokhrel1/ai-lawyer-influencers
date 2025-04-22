@@ -42,10 +42,10 @@ if not os.path.exists(CHROMA_DIR):
     if not texts: 
         texts = ["your", "text", "data"] 
         texts = [Document(page_content=text) for text in texts]
-    vectordb = Chroma.from_documents(texts, embeddings, persist_directory=CHROMA_DIR)
+    vectordb = Chroma.from_documents(texts, embeddings, persist_directory=None)
     vectordb.persist()
 else:
-    vectordb = Chroma(persist_directory=CHROMA_DIR, embedding_function=embeddings)
+    vectordb = Chroma(persist_directory=None, embedding_function=embeddings)
 
 # Initialize LLM
 try:
