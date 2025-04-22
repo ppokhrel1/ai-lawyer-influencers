@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 import requests
 import os
 from pydantic import BaseModel
+import numpy as np
 
 # Add request model
 class AddUrlRequest(BaseModel):
