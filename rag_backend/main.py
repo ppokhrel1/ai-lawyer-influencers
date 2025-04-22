@@ -14,6 +14,7 @@ import requests
 import os
 from pydantic import BaseModel
 import numpy as np
+from langchain_core.documents import Document
 
 # Add request model
 class AddUrlRequest(BaseModel):
