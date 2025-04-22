@@ -35,7 +35,7 @@ if not os.path.exists(CHROMA_DIR):
     documents = loader.load()
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     texts = text_splitter.split_documents(documents)
-    vectordb = Chroma.from_documents(texts, embeddings, persist_directory=CHROMA_DIR)
+    vectordb = Chroma.from_documents(np.array(texts), np.array(embeddings), persist_directory=CHROMA_DIR)
     vectordb.persist()
 else:
     vectordb = Chroma(persist_directory=CHROMA_DIR, embedding_function=embeddings)
