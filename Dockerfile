@@ -6,5 +6,5 @@ RUN   pip install fastapi uvicorn pdfplumber pytesseract pillow      python-mult
 # Explicitly expose the port
 EXPOSE $PORT
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
