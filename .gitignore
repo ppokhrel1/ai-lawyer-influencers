@@ -1,5 +1,6 @@
 */chroma_db/*
 */documents/*
 */venv/*
+venv/
 __pycache__/
 */*.db
