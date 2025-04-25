@@ -1,25 +1,92 @@
+
+# Default substitutions for database passwords
+# If you're not using Secret Manager, replace these values directly or set trigger substitutions in the Cloud Build trigger
+#
+substitutions:
+  _DB_PASSWORD: "REPLACE_WITH_AUTH_DB_PASSWORD"
+  _CHROMA_DB_PASSWORD: "REPLACE_WITH_CHROMA_DB_PASSWORD"
+
 steps:
-  # Build Docker image
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/ai-lawyers-influencers', '.']
-  
-  # Push to Google Container Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/ai-lawyers-influencers']
-  
-  # Deploy to Cloud Run
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    args: 
-      - 'gcloud'
-      - 'run'
-      - 'deploy'
-      - 'ai-lawyers-influencers'
-      - '--image'
-      - 'gcr.io/$PROJECT_ID/ai-lawyers-influencers'
-      - '--platform'
-      - 'managed'
-      - '--region'
-      - 'us-central1'
-      - '--memory'
-      - '2Gi'
-      - '--allow-unauthenticated'
+  # ── A) Provision Cloud SQL Instance for FastAPI Auth DB ──────────────────────────
+  - id: "provision-auth-sql"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args:
+      - sql
+      - instances
+      - create
+      - fastapi-auth-db
+      - --database-version=POSTGRES_13
+      - --tier=db-f1-micro
+      - --region=us-central1
+
+  # ── B) Initialize Auth DB schema & set root password ─────────────────────────────
+  - id: "init-auth-db"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - -c
+      - |
+        gcloud sql databases create auth_db --instance=fastapi-auth-db
+        gcloud sql users set-password root \
+          --host=% \
+          --instance=fastapi-auth-db \
+          --password=${_DB_PASSWORD}
+
+  # ── C) Provision Cloud SQL Instance for ChromaDB Vectors ─────────────────────────
+  - id: "provision-chroma-sql"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args:
+      - sql
+      - instances
+      - create
+      - chromadb-sql-db
+      - --database-version=POSTGRES_13
+      - --tier=db-f1-micro
+      - --region=us-central1
+
+  # ── D) Initialize ChromaDB DB schema & set root password ────────────────────────
+  - id: "init-chroma-db"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - -c
+      - |
+        gcloud sql databases create chromadb_db --instance=chromadb-sql-db
+        gcloud sql users set-password root \
+          --host=% \
+          --instance=chromadb-sql-db \
+          --password=${_CHROMA_DB_PASSWORD}
+
+  # ── E) Build & Push Docker Image ───────────────────────────────────────────────
+  - id: "build"
+    name: "gcr.io/cloud-builders/docker"
+    args: ["build", "-t", "gcr.io/$PROJECT_ID/ai-lawyers-influencers", "."]
+
+  - id: "push"
+    name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/$PROJECT_ID/ai-lawyers-influencers"]
+
+  # ── F) Deploy to Cloud Run with 2Gi RAM & Both Cloud SQL Instances ─────────────
+  - id: "deploy"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - -c
+      - |
+        # Retrieve Cloud SQL connection names
+        AUTH_CONN=$(gcloud sql instances describe fastapi-auth-db \
+          --format="value(connectionName)")
+        CHROMA_CONN=$(gcloud sql instances describe chromadb-sql-db \
+          --format="value(connectionName)")
+
+        # Deploy FastAPI container to Cloud Run
+        gcloud run deploy ai-lawyers-influencers \
+          --image gcr.io/$PROJECT_ID/ai-lawyers-influencers \
+          --platform managed \
+          --region us-central1 \
+          --memory 2Gi \
+          --allow-unauthenticated \
+          --add-cloudsql-instances=$AUTH_CONN,$CHROMA_CONN \
+          --set-env-vars=AUTH_DB_CONN=$AUTH_CONN,AUTH_DB_PASS=${_DB_PASSWORD},CHROMA_DB_CONN=$CHROMA_CONN,CHROMA_DB_PASS=${_CHROMA_DB_PASSWORD},CHROMA_DIR=/tmp/chroma
