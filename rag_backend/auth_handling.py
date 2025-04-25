@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import databases
 import sqlalchemy
+from urllib.parse import quote_plus
 
 import os
 
@@ -15,17 +16,47 @@ import os
 
 # Environment check: Check if running locally or on Cloud Run
 IS_LOCAL = os.getenv("IS_LOCAL", "false").lower() == "true"  # Default to 'false' if not set
-
+unix_socket_path = ""
 if IS_LOCAL:
     # Use SQLite when running locally
     AUTH_DB_URL = "sqlite:///./test.db"  # SQLite file-based database, adjust path if needed
-else:
-    # Use Cloud SQL connection for PostgreSQL when on Cloud
-    AUTH_DB_CONN = os.getenv("AUTH_DB_CONN")  # Cloud SQL connection string
-    AUTH_DB_PASS = os.getenv("AUTH_DB_PASS")  # Cloud SQL password
-    AUTH_DB_NAME = os.getenv("AUTH_DB_NAME", "your_database_name")  # PostgreSQL database name
-    AUTH_DB_URL = f"postgresql+pg8000://{AUTH_DB_CONN}:{AUTH_DB_PASS}@localhost/{AUTH_DB_NAME}"
+    # Create the engine and metadata
+    engine = sqlalchemy.create_engine(
+            AUTH_DB_URL,
+            pool_size=5,
+            max_overflow=2,
+            pool_timeout=30,
+            pool_recycle=1800,
+        )
+    database = databases.Database(AUTH_DB_URL)
 
+else:
+    AUTH_DB_USER = os.getenv("AUTH_DB_USER", "postgres")
+    AUTH_DB_PASS = os.getenv("AUTH_DB_PASS", "")
+    AUTH_DB_CONN = os.getenv("AUTH_DB_CONN", "")
+    AUTH_DB_NAME = os.getenv("AUTH_DB_NAME", "postgres")
+
+    # Use Cloud SQL Unix socket path
+    unix_socket_path = f"/cloudsql/{AUTH_DB_CONN}"
+
+    AUTH_DB_URL = (
+        f"postgresql+pg8000://"
+        f"{AUTH_DB_USER}:{quote_plus(AUTH_DB_PASS)}"
+        f"@/{AUTH_DB_NAME}"
+    )
+    AUTH_DB_URL = (
+        f"postgresql://{AUTH_DB_USER}:{quote_plus(AUTH_DB_PASS)}"
+        f"@/{AUTH_DB_NAME}"
+        f"?host=/cloudsql/{AUTH_DB_CONN}"
+    )
+    engine = sqlalchemy.create_engine(
+        AUTH_DB_URL,
+        pool_size=5,
+        max_overflow=2,
+        pool_timeout=30,
+        pool_recycle=1800,
+    )
+    database = databases.Database(AUTH_DB_URL, force_rollback=False,)
 # Secret and token expiration configuration
 SECRET_KEY = "your-secret-key-keep-it-secret"
 ALGORITHM = "HS256"
@@ -34,7 +65,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 security = HTTPBearer(auto_error=False)
 
 # Database setup
-database = databases.Database(AUTH_DB_URL)
+
 metadata = sqlalchemy.MetaData()
 
 # Define the users table in SQLAlchemy
@@ -57,8 +88,6 @@ class User(BaseModel):
 class UserInDB(User):
     id: int
 
-# Create the engine and metadata
-engine = sqlalchemy.create_engine(AUTH_DB_URL)
 
 # Ensure the database tables are created
 metadata.create_all(engine)

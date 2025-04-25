@@ -89,10 +89,10 @@ pipeline('text2text-generation', model=model, tokenizer=tokenizer)"
 # Verify models are accessible
 COPY . .
 
-EXPOSE 8000
+EXPOSE 8080
 
 WORKDIR rag_backend/
 
 # Run with single worker and request timeout
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-keep-alive", "30"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--timeout-keep-alive", "30"]
 

@@ -1,81 +1,94 @@
 substitutions:
+  _DB_USER: "auth_master"
   _DB_PASSWORD: "_REPLACE_WITH_AUTH_DB_PASSWORD"
+  _CHROMA_DB_USER: "chroma_master"
   _CHROMA_DB_PASSWORD: "_REPLACE_WITH_CHROMA_DB_PASSWORD"
 
 steps:
-  # ── A) Provision Cloud SQL Instance for FastAPI Auth DB ──────────────────────────
+  # ── 1) Fetch project number and write to workspace ─────────────────────────────
+  - id: "get-project-number"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - -c
+      - |
+          PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" \
+            --format="value(projectNumber)")
+          echo "PROJECT_NUMBER=$PROJECT_NUMBER" > /workspace/project_number.env
+
+
+  # ── 3) Provision Cloud SQL for Auth DB ─────────────────────────────────────────
   - id: "provision-auth-sql"
     name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
       - -c
       - |
-        if ! gcloud sql instances describe fastapi-auth-db > /dev/null 2>&1; then
-          echo "Creating Cloud SQL instance: fastapi-auth-db"
-          gcloud sql instances create fastapi-auth-db \
-            --database-version=POSTGRES_13 \
-            --tier=db-f1-micro \
-            --region=us-central1
-        else
-          echo "Cloud SQL instance fastapi-auth-db already exists"
-        fi
+          if ! gcloud sql instances describe fastapi-auth-db > /dev/null 2>&1; then
+            echo "Creating Cloud SQL instance: fastapi-auth-db"
+            gcloud sql instances create fastapi-auth-db \
+              --database-version=POSTGRES_13 \
+              --tier=db-f1-micro \
+              --region=us-central1
+          fi
 
-  # ── B) Initialize Auth DB schema & set root password ─────────────────────────────
+  # ── 4) Init Auth DB & user ──────────────────────────────────────────────────────
   - id: "init-auth-db"
     name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
       - -c
       - |
-        if ! gcloud sql databases describe auth_db --instance=fastapi-auth-db > /dev/null 2>&1; then
-          echo "Creating auth_db"
-          gcloud sql databases create auth_db --instance=fastapi-auth-db
-        else
-          echo "auth_db already exists"
-        fi
+          if ! gcloud sql databases describe auth_db --instance=fastapi-auth-db > /dev/null 2>&1; then
+            gcloud sql databases create auth_db --instance=fastapi-auth-db
+          fi
 
-        gcloud sql users set-password root \
-          --host=% \
-          --instance=fastapi-auth-db \
-          --password=${_DB_PASSWORD}
+          if ! gcloud sql users list --instance=fastapi-auth-db | grep -q ${_DB_USER}; then
+            gcloud sql users create ${_DB_USER} \
+              --instance=fastapi-auth-db \
+              --password=${_DB_PASSWORD}
+          else
+            gcloud sql users set-password ${_DB_USER} \
+              --instance=fastapi-auth-db \
+              --password=${_DB_PASSWORD}
+          fi
 
-  # ── C) Provision Cloud SQL Instance for ChromaDB Vectors ─────────────────────────
+  # ── 5) Provision ChromaDB SQL ──────────────────────────────────────────────────
   - id: "provision-chroma-sql"
     name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
       - -c
       - |
-        if ! gcloud sql instances describe chromadb-sql-db > /dev/null 2>&1; then
-          echo "Creating Cloud SQL instance: chromadb-sql-db"
-          gcloud sql instances create chromadb-sql-db \
-            --database-version=POSTGRES_13 \
-            --tier=db-f1-micro \
-            --region=us-central1
-        else
-          echo "Cloud SQL instance chromadb-sql-db already exists"
-        fi
+          if ! gcloud sql instances describe chromadb-sql-db > /dev/null 2>&1; then
+            gcloud sql instances create chromadb-sql-db \
+              --database-version=POSTGRES_13 \
+              --tier=db-f1-micro \
+              --region=us-central1
+          fi
 
-  # ── D) Initialize ChromaDB DB schema & set root password ────────────────────────
+  # ── 6) Init ChromaDB & user ─────────────────────────────────────────────────────
   - id: "init-chroma-db"
     name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
       - -c
       - |
-        if ! gcloud sql databases describe chromadb_db --instance=chromadb-sql-db > /dev/null 2>&1; then
-          echo "Creating chromadb_db"
-          gcloud sql databases create chromadb_db --instance=chromadb-sql-db
-        else
-          echo "chromadb_db already exists"
-        fi
+          if ! gcloud sql databases describe chromadb_db --instance=chromadb-sql-db > /dev/null 2>&1; then
+            gcloud sql databases create chromadb_db --instance=chromadb-sql-db
+          fi
 
-        gcloud sql users set-password root \
-          --host=% \
-          --instance=chromadb-sql-db \
-          --password=${_CHROMA_DB_PASSWORD}
+          if ! gcloud sql users list --instance=chromadb-sql-db | grep -q ${_CHROMA_DB_USER}; then
+            gcloud sql users create ${_CHROMA_DB_USER} \
+              --instance=chromadb-sql-db \
+              --password=${_CHROMA_DB_PASSWORD}
+          else
+            gcloud sql users set-password ${_CHROMA_DB_USER} \
+              --instance=chromadb-sql-db \
+              --password=${_CHROMA_DB_PASSWORD}
+          fi
 
-  # ── E) Build & Push Docker Image ───────────────────────────────────────────────
+  # ── 7) Build & Push Docker Image ───────────────────────────────────────────────
   - id: "build"
     name: "gcr.io/cloud-builders/docker"
     args: ["build", "-t", "gcr.io/$PROJECT_ID/ai-lawyers-influencers", "."]
@@ -84,22 +97,26 @@ steps:
     name: "gcr.io/cloud-builders/docker"
     args: ["push", "gcr.io/$PROJECT_ID/ai-lawyers-influencers"]
 
-  # ── F) Deploy to Cloud Run with 2Gi RAM & Both Cloud SQL Instances ─────────────
+  # ── 8) Deploy to Cloud Run ──────────────────────────────────────────────────────
   - id: "deploy"
     name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
       - -c
       - |
-        AUTH_CONN=$(gcloud sql instances describe fastapi-auth-db --format="value(connectionName)")
-        CHROMA_CONN=$(gcloud sql instances describe chromadb-sql-db --format="value(connectionName)")
+          # bring PROJECT_NUMBER into scope
+          source /workspace/project_number.env
 
-        gcloud run deploy ai-lawyers-influencers \
-          --image gcr.io/$PROJECT_ID/ai-lawyers-influencers \
-          --platform managed \
-          --region us-central1 \
-          --memory 2Gi \
-          --allow-unauthenticated \
-          --add-cloudsql-instances=$$AUTH_CONN,$$CHROMA_CONN \
-          --set-env-vars=AUTH_DB_CONN=$$AUTH_CONN,AUTH_DB_PASS=${_DB_PASSWORD},CHROMA_DB_CONN=$$CHROMA_CONN,CHROMA_DB_PASS=${_CHROMA_DB_PASSWORD},CHROMA_DIR=/tmp/chroma
+          AUTH_CONN=$(gcloud sql instances describe fastapi-auth-db \
+            --format="value(connectionName)")
+          CHROMA_CONN=$(gcloud sql instances describe chromadb-sql-db \
+            --format="value(connectionName)")
 
+          gcloud run deploy ai-lawyers-influencers \
+            --image gcr.io/$PROJECT_ID/ai-lawyers-influencers \
+            --platform managed \
+            --region us-central1 \
+            --memory=2Gi \
+            --allow-unauthenticated \
+            --add-cloudsql-instances="$$AUTH_CONN","$$CHROMA_CONN" \
+            --set-env-vars=PROJECT_NUMBER=$$PROJECT_NUMBER,AUTH_DB_CONN=$$AUTH_CONN,AUTH_DB_USER=${_DB_USER},AUTH_DB_PASS=${_DB_PASSWORD},AUTH_DB_NAME=auth_db,CHROMA_DB_CONN=$$CHROMA_CONN,CHROMA_DB_USER=${_CHROMA_DB_USER},CHROMA_DB_PASS=${_CHROMA_DB_PASSWORD},CHROMA_DB_NAME=chromadb_db,CHROMA_DIR=/tmp/chroma
