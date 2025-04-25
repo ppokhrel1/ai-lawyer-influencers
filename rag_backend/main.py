@@ -16,6 +16,11 @@ from pydantic import BaseModel
 import numpy as np
 from langchain_core.documents import Document
 
+from langchain.cache import InMemoryCache
+from langchain.globals import set_llm_cache
+
+set_llm_cache(InMemoryCache())  # Reduce ChromaDB memory usage
+
 # Add request model
 class AddUrlRequest(BaseModel):
     url: str
@@ -26,6 +31,10 @@ from pdf_handling import *
 # Configuration
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 LLM_MODEL = "google/flan-t5-base"
+
+EMBEDDING_MODEL = "/app/models/minilm"
+LLM_MODEL = "/app/models/flan-t5-base"
+
 CHROMA_DIR = "chroma_db"
 DOCUMENT_DIR = "documents"
 
@@ -42,14 +51,15 @@ if not os.path.exists(CHROMA_DIR):
     if not texts: 
         texts = ["your", "text", "data"] 
         texts = [Document(page_content=text) for text in texts]
-    vectordb = Chroma.from_documents(texts, embeddings, persist_directory=None)
+    settings = chromadb.Settings(chunk_size=512, allow_reset=True)
+    vectorstore = Chroma(embedding_function=embeddings, client_settings=settings)
     vectordb.persist()
 else:
     vectordb = Chroma(persist_directory=None, embedding_function=embeddings)
 
 # Initialize LLM
 try:
-    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL)
+    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL, use_fast=False)
     model = AutoModelForSeq2SeqLM.from_pretrained(LLM_MODEL)
     pipe = pipeline(
         "text2text-generation",
