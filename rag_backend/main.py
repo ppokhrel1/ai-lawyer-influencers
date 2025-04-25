@@ -52,9 +52,9 @@ if not os.path.exists(CHROMA_DIR):
     if not texts: 
         texts = ["your", "text", "data"] 
         texts = [Document(page_content=text) for text in texts]
-    settings = chromadb.Settings(chunk_size=512, allow_reset=True)
-    vectorstore = Chroma(embedding_function=embeddings, client_settings=settings)
-    vectordb.persist()
+    settings = chromadb.Settings(allow_reset=True)  # Removed chunk_size parameter
+    vectordb = Chroma(embedding_function=embeddings, client_settings=settings)
+    vectordb.persist()  # Updated from vectordb to vectorstore
 else:
     vectordb = Chroma(persist_directory=None, embedding_function=embeddings)
 
