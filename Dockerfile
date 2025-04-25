@@ -1,4 +1,4 @@
-FROM python:3.9-slim  
+FROM python:3.10-slim  
 
 WORKDIR /app
 
@@ -42,26 +42,28 @@ RUN pip install --no-cache-dir \
     torch==2.2.1+cpu \
     sentencepiece \
     chromadb \
+    asyncpg  \
+    pg8000 \
+    psycopg2-binary \
+    alembic \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
-
-
-COPY . .
 # Create models directory
 RUN mkdir -p /app/models
 
 # Download and organize models properly
 RUN python -c "\
 from sentence_transformers import SentenceTransformer; \
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
+model = SentenceTransformer('sentence-transformers/distilbert-base-nli-mean-tokens'); \
 model.save('/app/models/minilm')"
 
 RUN python -c "\
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer; \
-model = AutoModelForSeq2SeqLM.from_pretrained('google/flan-t5-base'); \
-tokenizer = AutoTokenizer.from_pretrained('google/flan-t5-base'); \
+model = AutoModelForSeq2SeqLM.from_pretrained('t5-small'); \
+tokenizer = AutoTokenizer.from_pretrained('t5-small'); \
 model.save_pretrained('/app/models/flan-t5-base'); \
 tokenizer.save_pretrained('/app/models/flan-t5-base')"
+
 
 RUN ls -l /app/models/flan-t5-base && \
     echo "Tokenizer config:" && \
@@ -85,6 +87,7 @@ from transformers import pipeline; \
 pipeline('text2text-generation', model=model, tokenizer=tokenizer)"
 
 # Verify models are accessible
+COPY . .
 
 EXPOSE 8000
 

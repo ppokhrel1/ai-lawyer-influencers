@@ -8,8 +8,25 @@ from typing import Optional
 import databases
 import sqlalchemy
 
-# Configuration
-DATABASE_URL = "sqlite:///./test.db"
+import os
+
+# Cloud SQL connection strings (from environment variables)
+
+
+# Environment check: Check if running locally or on Cloud Run
+IS_LOCAL = os.getenv("IS_LOCAL", "false").lower() == "true"  # Default to 'false' if not set
+
+if IS_LOCAL:
+    # Use SQLite when running locally
+    AUTH_DB_URL = "sqlite:///./test.db"  # SQLite file-based database, adjust path if needed
+else:
+    # Use Cloud SQL connection for PostgreSQL when on Cloud
+    AUTH_DB_CONN = os.getenv("AUTH_DB_CONN")  # Cloud SQL connection string
+    AUTH_DB_PASS = os.getenv("AUTH_DB_PASS")  # Cloud SQL password
+    AUTH_DB_NAME = os.getenv("AUTH_DB_NAME", "your_database_name")  # PostgreSQL database name
+    AUTH_DB_URL = f"postgresql+pg8000://{AUTH_DB_CONN}:{AUTH_DB_PASS}@localhost/{AUTH_DB_NAME}"
+
+# Secret and token expiration configuration
 SECRET_KEY = "your-secret-key-keep-it-secret"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -17,9 +34,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 security = HTTPBearer(auto_error=False)
 
 # Database setup
-database = databases.Database(DATABASE_URL)
+database = databases.Database(AUTH_DB_URL)
 metadata = sqlalchemy.MetaData()
 
+# Define the users table in SQLAlchemy
 users = sqlalchemy.Table(
     "users",
     metadata,
@@ -30,6 +48,7 @@ users = sqlalchemy.Table(
     sqlalchemy.Column("disabled", sqlalchemy.Boolean, default=False),
 )
 
+# Pydantic models
 class User(BaseModel):
     username: str
     hashed_password: str
@@ -38,8 +57,12 @@ class User(BaseModel):
 class UserInDB(User):
     id: int
 
-engine = sqlalchemy.create_engine(DATABASE_URL)
+# Create the engine and metadata
+engine = sqlalchemy.create_engine(AUTH_DB_URL)
+
+# Ensure the database tables are created
 metadata.create_all(engine)
+
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -236,6 +259,6 @@ async def get_current_user(
         request.state.auth_error = f"Authentication error: {str(e)}"
     
     return None
-    
+
 # Install dependencies
 # pip install passlib python-jose[cryptography] databases sqlalchemy

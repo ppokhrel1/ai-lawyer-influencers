@@ -15,6 +15,7 @@ import os
 from pydantic import BaseModel
 import numpy as np
 from langchain_core.documents import Document
+import chromadb
 
 from langchain.cache import InMemoryCache
 from langchain.globals import set_llm_cache
