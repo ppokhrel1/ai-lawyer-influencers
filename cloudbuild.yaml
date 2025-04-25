@@ -13,7 +13,7 @@ steps:
       - 'gcloud'
       - 'run'
       - 'deploy'
-      - 'fastapi-app'
+      - 'ai-lawyers-influencers'
       - '--image'
       - 'gcr.io/$PROJECT_ID/ai-lawyers-influencers'
       - '--platform'
