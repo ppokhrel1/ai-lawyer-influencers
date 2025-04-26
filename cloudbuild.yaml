@@ -3,6 +3,8 @@ substitutions:
   _DB_PASSWORD: "_REPLACE_WITH_AUTH_DB_PASSWORD"
   _CHROMA_DB_USER: "chroma_master"
   _CHROMA_DB_PASSWORD: "_REPLACE_WITH_CHROMA_DB_PASSWORD"
+  _DOCUMENT_PATH:       "gs://ai-lawyers-influencers-vector-store/docs"
+  _CHROMA_DIR:          "/tmp/chroma"
 
 steps:
   # ── 1) Fetch project number and write to workspace ─────────────────────────────
@@ -16,7 +18,7 @@ steps:
             --format="value(projectNumber)")
           echo "PROJECT_NUMBER=$PROJECT_NUMBER" > /workspace/project_number.env
 
-
+ 
   # ── 3) Provision Cloud SQL for Auth DB ─────────────────────────────────────────
   - id: "provision-auth-sql"
     name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
@@ -88,6 +90,8 @@ steps:
               --password=${_CHROMA_DB_PASSWORD}
           fi
 
+
+
   # ── 7) Build & Push Docker Image ───────────────────────────────────────────────
   - id: "build"
     name: "gcr.io/cloud-builders/docker"
@@ -119,4 +123,4 @@ steps:
             --memory=2Gi \
             --allow-unauthenticated \
             --add-cloudsql-instances="$$AUTH_CONN","$$CHROMA_CONN" \
-            --set-env-vars=PROJECT_NUMBER=$$PROJECT_NUMBER,AUTH_DB_CONN=$$AUTH_CONN,AUTH_DB_USER=${_DB_USER},AUTH_DB_PASS=${_DB_PASSWORD},AUTH_DB_NAME=auth_db,CHROMA_DB_CONN=$$CHROMA_CONN,CHROMA_DB_USER=${_CHROMA_DB_USER},CHROMA_DB_PASS=${_CHROMA_DB_PASSWORD},CHROMA_DB_NAME=chromadb_db,CHROMA_DIR=/tmp/chroma
+            --set-env-vars=PROJECT_NUMBER=$$PROJECT_NUMBER,AUTH_DB_CONN=$$AUTH_CONN,AUTH_DB_USER=${_DB_USER},AUTH_DB_PASS=${_DB_PASSWORD},AUTH_DB_NAME=auth_db,CHROMA_DB_CONN=$$CHROMA_CONN,CHROMA_DB_USER=${_CHROMA_DB_USER},CHROMA_DB_PASS=${_CHROMA_DB_PASSWORD},CHROMA_DB_NAME=chromadb_db,CHROMA_DIR=${_CHROMA_DIR},DOCUMENT_PATH=${_DOCUMENT_PATH} 

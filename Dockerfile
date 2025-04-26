@@ -41,9 +41,11 @@ RUN pip install --no-cache-dir \
     transformers==4.38.2 \
     torch==2.2.1+cpu \
     sentencepiece \
-    chromadb \
+    chromadb[postgres] \
     asyncpg  \
     pg8000 \
+    gcsfs  \
+    pgvector \
     psycopg2-binary \
     alembic \
     --extra-index-url https://download.pytorch.org/whl/cpu

@@ -19,6 +19,9 @@ import chromadb
 
 from langchain.cache import InMemoryCache
 from langchain.globals import set_llm_cache
+from langchain.vectorstores import PGVector
+import gcsfs
+from langchain_community.document_loaders import DirectoryLoader, GCSDirectoryLoader, TextLoader
 
 set_llm_cache(InMemoryCache())  # Reduce ChromaDB memory usage
 
@@ -33,30 +36,66 @@ from pdf_handling import *
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 LLM_MODEL = "google/flan-t5-base"
 
-EMBEDDING_MODEL = "/app/models/minilm"
-LLM_MODEL = "/app/models/flan-t5-base"
+CHROMA_DB_USER = os.getenv("CHROMA_DB_USER", "chroma_master")
+CHROMA_DB_PASS = os.getenv("CHROMA_DB_PASS", "")
+CHROMA_DB_CONN = os.getenv("CHROMA_DB_CONN", "")
+CHROMA_DB_NAME = os.getenv("CHROMA_DB_NAME", "chromadb_db")
 
-CHROMA_DIR = "chroma_db"
-DOCUMENT_DIR = "documents"
 
-# Initialize embeddings
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "/app/models/minilm")
+LLM_MODEL      = os.getenv("LLM_MODEL", "/app/models/flan-t5-base")
+CHROMA_DIR      = os.getenv("CHROMA_DIR", "chroma_db")
+
+# ── CONFIG ──────────────────────────────────────────────────────────────────────
+EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL", "/app/models/minilm")
+CHROMA_DIR         = os.getenv("CHROMA_DIR", "/tmp/chroma")    # e.g. /tmp on Cloud Run
+DOCUMENT_PATH      = os.getenv("DOCUMENT_PATH", "documents")
+
+GCS_BUCKET      = os.getenv("GCS_BUCKET_NAME", "ai-lawyers-influencers-vector-store")
+GCS_DOCUMENTS   = f"{GCS_BUCKET}/docs/"
+
+IS_LOCAL = os.getenv("IS_LOCAL", "false").lower() == "true"
+
+# ── EMBEDDINGS ──────────────────────────────────────────────────────────────────
 embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
 
-# Initialize ChromaDB
-if not os.path.exists(CHROMA_DIR):
-    os.makedirs(DOCUMENT_DIR, exist_ok=True)
-    loader = DirectoryLoader(DOCUMENT_DIR, glob="**/*.txt", loader_cls=TextLoader)
-    documents = loader.load()
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-    texts = text_splitter.split_documents(documents)
-    if not texts: 
-        texts = ["your", "text", "data"] 
-        texts = [Document(page_content=text) for text in texts]
-    settings = chromadb.Settings(allow_reset=True)  # Removed chunk_size parameter
-    vectordb = Chroma(embedding_function=embeddings, client_settings=settings)
-    vectordb.persist()  # Updated from vectordb to vectorstore
+# ── LOAD & SPLIT TEXTS ──────────────────────────────────────────────────────────
+if IS_LOCAL:
+    # load .txt files from a local folder
+    loader = DirectoryLoader(
+        DOCUMENT_PATH,
+        glob="**/*.txt",
+        loader_cls=TextLoader
+    )
 else:
-    vectordb = Chroma(persist_directory=None, embedding_function=embeddings)
+    loader = GCSDirectoryLoader(
+        'ai-lawyers-influencers',          # GCP project ID
+        'ai-lawyers-influencers-vector-store',        # your bucket/folder path
+    )
+
+docs   = loader.load()
+chunks = RecursiveCharacterTextSplitter(
+    chunk_size=500,
+    chunk_overlap=100
+).split_documents(docs)
+
+# ensure at least one dummy chunk if folder is empty
+if not chunks:
+    chunks = [Document(page_content="seed document")]
+
+# ── BUILD OR LOAD CHROMA VECTOR STORE ───────────────────────────────────────────
+vectordb = Chroma.from_documents(
+    documents=chunks,
+    embedding=embeddings,
+    persist_directory=CHROMA_DIR,
+)
+
+# only add & persist if this is a cold start
+if not os.path.exists(os.path.join(CHROMA_DIR, "index")):
+    vectordb.add_documents(chunks)
+    vectordb.persist()
+
+
 
 # Initialize LLM
 try:
