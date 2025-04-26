@@ -6,6 +6,9 @@ substitutions:
   _DOCUMENT_PATH:       "gs://ai-lawyers-influencers-vector-store/docs"
   _CHROMA_DIR:          "/tmp/chroma"
 
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 steps:
   # ── 1) Fetch project number and write to workspace ─────────────────────────────
   - id: "get-project-number"
