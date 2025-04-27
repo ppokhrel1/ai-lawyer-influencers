@@ -23,85 +23,150 @@ from langchain.vectorstores import PGVector
 import gcsfs
 from langchain_community.document_loaders import DirectoryLoader, GCSDirectoryLoader, TextLoader
 from pdf_handling import *
-from auth_handling import *
+from metrics.check_metrics import *
+from models.vectordb_setup import *
+import time
+import datetime
+
+import random
+import uuid
+
+app.include_router(monitoring_router, prefix="/monitoring", tags=["monitoring"])
 
 from urllib.parse import urlparse
 import httpx  # Better async alternative to requests
  
-# main.py
-import os
-from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
-from bs4 import BeautifulSoup
-import requests
+set_llm_cache(InMemoryCache())  # Reduce ChromaDB memory usage
 
-from models.vectordb_setup import vectordb, llm, embeddings  # our setup file
-from langchain.schema import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains import RetrievalQA
-
-
-app = FastAPI()
-
-# ── REQUEST MODELS ─────────────────────────────────────────────────────────────
-class QuestionRequest(BaseModel):
-    question: str
-
+# Add request model
 class AddUrlRequest(BaseModel):
     url: str
 
-# ── /ask ENDPOINT ───────────────────────────────────────────────────────────────
+#app = FastAPI()
+
+# Configuration
+# EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# LLM_MODEL = "google/flan-t5-base"
+
+
+
+# Initialize LLM
+try:
+    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL, use_fast=False)
+    model = AutoModelForSeq2SeqLM.from_pretrained(LLM_MODEL)
+    pipe = pipeline(
+        "text2text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_new_tokens=512,
+        temperature=0.3
+    )
+    llm = HuggingFacePipeline(pipeline=pipe)
+except Exception as e:
+    raise RuntimeError(f"Failed to initialize LLM: {str(e)}")
+
+# Create QA Chain
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=vectordb.as_retriever(search_kwargs={'k': 2}),
+    chain_type="stuff"
+)
+
+class QuestionRequest(BaseModel):
+    question: str
+
+
+
+def get_user_vectordb(user: User):
+    return Chroma(
+        persist_directory=CHROMA_DIR,
+        embedding_function=embeddings,
+        collection_name=user.username  # Create per-user collections
+    )
+
+
 @app.post("/ask")
 async def ask_question(
     request: QuestionRequest,
     user: Optional[User] = Depends(get_current_user)
 ):
     try:
-        # pick public vs. user‐private retriever
+        # Choose retriever
         if user:
-            user_vectordb = vectordb.with_collection(user.username)
-            retriever = user_vectordb.as_retriever()
+            user_db   = Chroma(
+                persist_directory=CHROMA_DIR,
+                embedding_function=embeddings,
+                collection_name=user.username
+            )
+            retriever = user_db.as_retriever()
         else:
             retriever = vectordb.as_retriever()
 
-        # build a fresh chain per request
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            retriever=retriever,
-            chain_type="stuff"
-        )
+        # A/B routing
+        start = time.time()
+        if random.random() < 0.2:
+            chosen_llm, model_type = shadow_llm, "shadow"
+        else:
+            chosen_llm, model_type = llm,        "production"
 
-        answer = qa_chain.run(request.question)
+        qa = RetrievalQA.from_chain_type(
+            llm=chosen_llm,
+            retriever=retriever,
+            chain_type="stuff",
+            chain_type_kwargs={"prompt": PROMPT_TEMPLATE}
+        )
+        answer = qa.run(request.question)
+        latency = time.time() - start
+
+        # *** Log into metrics collection ***
+        metrics_collection.add(
+            documents=[request.question],
+            metadatas=[{
+                "model": model_type,
+                "response_time": latency,
+                "timestamp": time.time(),
+                "user": user.username if user else 'guest'
+            }],
+            ids=[str(uuid.uuid4())]
+        )
+        #metrics_collection.persist()
+
+        # Save conversation memory
+        if user:
+            convo_doc = Document(
+                page_content=f"Q: {request.question}\nA: {answer}",
+                metadata={"source": "conversation"}
+            )
+            retriever.add_documents([convo_doc])
+            vectordb.persist()
+
         return {"answer": answer}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ── /add_url_test ENDPOINT ─────────────────────────────────────────────────────
+
 @app.post("/add_url_test")
 async def add_url_test(request: AddUrlRequest):
     try:
-        url = request.url
-        resp = requests.get(url)
-        resp.raise_for_status()
+        url = request.url  # Get URL from request body
+        response = requests.get(url)
+        response.raise_for_status()
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-        text = soup.get_text(separator="\n", strip=True)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        text = soup.get_text(separator='\n', strip=True)
 
         doc = Document(page_content=text, metadata={"source": url})
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-        split_docs = splitter.split_documents([doc])
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        split_docs = text_splitter.split_documents([doc])
 
         vectordb.add_documents(split_docs)
         vectordb.persist()
 
-        return {"message": f"Added {len(split_docs)} chunks from {url}"}
-
+        return {"message": f"Added {len(split_docs)} document chunks from {url}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 if __name__ == "__main__":
     import uvicorn

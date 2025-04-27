@@ -16,6 +16,7 @@ import requests
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
+from models.vectordb_setup import vectordb
 # Add to dependencies
 #pip install pdfplumber pytesseract pillow python-multipart
 

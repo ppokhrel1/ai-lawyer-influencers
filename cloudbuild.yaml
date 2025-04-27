@@ -3,7 +3,7 @@ substitutions:
   _DB_PASSWORD: "_REPLACE_WITH_AUTH_DB_PASSWORD"
   _CHROMA_DB_USER: "chroma_master"
   _CHROMA_DB_PASSWORD: "_REPLACE_WITH_CHROMA_DB_PASSWORD"
-  _DOCUMENT_PATH:       "gs://ai-lawyers-influencers-vector-store/docs"
+  _DOCUMENT_PATH:       "ai-lawyers-influencers-vector-store/docs"
   _CHROMA_DIR:          "/tmp/chroma"
 
 options:
