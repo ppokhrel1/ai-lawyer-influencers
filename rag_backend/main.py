@@ -23,6 +23,8 @@ from langchain.vectorstores import PGVector
 import gcsfs
 from langchain_community.document_loaders import DirectoryLoader, GCSDirectoryLoader, TextLoader
 from pdf_handling import *
+from auth_handling import *
+
 from urllib.parse import urlparse
 import httpx  # Better async alternative to requests
  
@@ -35,12 +37,11 @@ from pydantic import BaseModel
 from bs4 import BeautifulSoup
 import requests
 
-from chromadb_setup import vectordb, llm, embeddings  # our setup file
+from models.vectordb_setup import vectordb, llm, embeddings  # our setup file
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
 
-from dependencies import get_current_user, User  # your auth logic
 
 app = FastAPI()
 
