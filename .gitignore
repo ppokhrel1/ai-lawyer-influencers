@@ -4,5 +4,6 @@
 */venv/*
 venv/
 myvenv/
+*/node_modules/
 __pycache__/
 */*.db

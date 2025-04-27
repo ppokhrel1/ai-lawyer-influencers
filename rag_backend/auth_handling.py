@@ -116,6 +116,16 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8080",
+        "https://legal-qa-frontend-754457156890.us-central1.run.app/"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # Database connection
