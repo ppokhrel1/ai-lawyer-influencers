@@ -26,6 +26,8 @@ from metrics.check_metrics import *
 from models.vectordb_setup import *
 from metrics.feedback import feedback_router  # Import the new router
 from metrics.drift_analysis import drift_router
+from metrics.retrieval_transparency import retrieval_transparency_router
+
 from helpers.helpers import *
 
 import time
@@ -39,6 +41,8 @@ metrics_collection = metrics_client.get_or_create_collection("metrics")
 app.include_router(monitoring_router, prefix="/monitoring", tags=["monitoring"])
 app.include_router(feedback_router, prefix="/feedback", tags=["feedback"]) # Include the feedback router
 app.include_router(drift_router, prefix="/drift", tags=["drift_analysis"])
+app.include_router(drift_router, prefix="/retrieval", tags=["transparency"])
+
 
 from urllib.parse import urlparse
 import httpx  # Better async alternative to requests
@@ -137,15 +141,23 @@ async def ask_question(
 
         # Check token length and other metrics for model drift
         metadatas = metrics_collection.get().get("metadatas", [])
-        previous_answers = [entry["answer_length"] for entry in metadatas] if metadatas else []
-        previous_tokens = [entry["token_length"] for entry in metadatas] if metadatas else []
+        previous_answers = [
+            len(entry.get("prod_answer", "") or entry.get("shadow_answer", ""))
+            for entry in metadatas
+        ] if metadatas else []
+        previous_tokens = [
+            entry.get("token_length", 0)
+            for entry in metadatas
+        ] if metadatas else []
+
+        print("tokens", previous_tokens)
         # Drift detection
         drift_detected = check_model_drift(answer, previous_answers)
         token_drift_detected = check_token_drift(current_tokens, previous_tokens)
 
 
         question_id = str(uuid.uuid4()) # Generate a unique ID for the question
-
+        print("hello", question_id)
         # *** Log into metrics collection ***
         metrics_collection.add(
             documents=[request.question],
@@ -160,8 +172,8 @@ async def ask_question(
                 "question_id": question_id,
                 "prod_answer": answer if model_type == "production" else "",
                 "shadow_answer": answer if model_type == "shadow" else "",
-                "retrieved_documents_prod": [doc.page_content for doc in docs] if model_type == "production" else [],
-                "retrieved_documents_shadow": [doc.page_content for doc in docs] if model_type == "shadow" else [],
+                "retrieved_documents_prod": "\n\n".join([doc.page_content for doc in docs]) if model_type == "production" else "",
+                "retrieved_documents_shadow": "\n\n".join([doc.page_content for doc in docs]) if model_type == "shadow" else "",
             }],
             ids=[question_id]
         )

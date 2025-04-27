@@ -12,7 +12,7 @@ from langchain.schema import Document
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 from langchain import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
-from transformers import AutoTokenizer, AutoModelForQuestionAnswering, pipeline
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering, pipeline, BitsAndBytesConfig, AutoModelForCausalLM
 
 # reduce in-memory cache usage
 set_llm_cache(InMemoryCache())
@@ -74,21 +74,25 @@ if not os.path.exists(os.path.join(CHROMA_DIR, "index")):
 
 def _load_llm(model_name: str, temp: float) -> HuggingFacePipeline:
     # Load the tokenizer and model for text generation
-    tok = AutoTokenizer.from_pretrained(model_name, use_fast=False)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-
-    # Create the text generation pipeline
-    generator = pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tok,
-        max_length=512,  # Adjust as needed
-        temperature=temp,
+    tokenizer = AutoTokenizer.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    model = AutoModelForCausalLM.from_pretrained(
+        "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        device_map=None,  # <- no auto device map
+        low_cpu_mem_usage=False,  # <- optional, just to be explicit
+        torch_dtype="auto"  # <- will use float32
     )
 
-    # Wrap the pipeline in HuggingFacePipeline
-    llm = HuggingFacePipeline(pipeline=generator)
-    return llm, tok
+    pipe = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_new_tokens=256,
+        temperature=temp,
+        do_sample=True
+    )
+
+    llm = HuggingFacePipeline(pipeline=pipe)
+    return llm, tokenizer
 
 
 llm, tokenizer        = _load_llm(LLM_MODEL, float(os.getenv("LLM_TEMPERATURE", "0.3")))
@@ -97,12 +101,17 @@ shadow_llm, tokenizer = _load_llm(SHADOW_LLM_MODEL, float(os.getenv("SHADOW_LLM_
 # ── PROMPT TEMPLATE ─────────────────────────────────────────────────────────────
 template = """<|system|>
 You are a helpful assistant that answers questions based on the provided context.
-If the context does not contain the answer, truthfully and concisely say "The answer is not available in the provided context."
-You should only use information from the context and answer in your own words. Do not repeat the question verbatim.
+
+
+Use the provided context to answer the question as accurately as possible.
+If the context does not contain the answer, use your own knowledge to generate the best possible response.
+
 <|user|>
 Context: {context}
 Question: {question}
+
 <|assistant|>"""
+
 
 
 PROMPT_TEMPLATE = PromptTemplate(

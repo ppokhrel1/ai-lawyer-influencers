@@ -47,11 +47,12 @@ RUN pip install --no-cache-dir \
     gcsfs  \
     pgvector \
     psycopg2-binary PyMuPDF Pillow pytesseract \
-    alembic \
+    alembic nltk \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
 RUN apt-get update && apt-get install -y \
     tesseract-ocr
+
 
 # Create models directory
 RUN mkdir -p /app/models
@@ -64,9 +65,9 @@ model = SentenceTransformer('sentence-transformers/distilbert-base-nli-mean-toke
 model.save('/app/models/minilm')"
 
 RUN python -c "\
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer; \
-model = AutoModelForSeq2SeqLM.from_pretrained('t5-small'); \
-tokenizer = AutoTokenizer.from_pretrained('t5-small'); \
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, AutoModel; \
+model = AutoModel.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0'); \
+tokenizer = AutoTokenizer.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0'); \
 model.save_pretrained('/app/models/flan-t5-base'); \
 tokenizer.save_pretrained('/app/models/flan-t5-base')"
 
