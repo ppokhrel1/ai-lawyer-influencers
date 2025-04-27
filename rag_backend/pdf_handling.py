@@ -99,32 +99,85 @@ async def delete_document(
     return {"message": "Document deleted"}
 
 
-# Update existing add_url endpoint to handle PDF URLs
+
+class AddUrlRequest(BaseModel):
+    url: str
+
 @app.post("/add_url")
-async def add_url(
-    url: str,
-    current_user: User = Depends(get_current_user)
-):
+async def add_url(request: AddUrlRequest):
     try:
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
+        url = request.url
         
-        content_type = response.headers.get('Content-Type', '')
-        
-        if 'pdf' in content_type.lower() or url.lower().endswith('.pdf'):
-            text = extract_text_from_pdf(response.content)
-        elif any(img_type in content_type.lower() for img_type in ['image/png', 'image/jpeg', 'image/tiff']):
-            text = extract_text_from_image(response.content)
-        else:
+        # Validate URL format
+        parsed_url = urlparse(url)
+        if not all([parsed_url.scheme, parsed_url.netloc]):
+            raise HTTPException(status_code=400, detail="Invalid URL format")
+
+        # Restrict to legal domains (optional whitelist)
+        legal_domains = [
+            "cornell.edu", "case.law", "courtlistener.com", 
+            "govinfo.gov", "eur-lex.europa.eu"
+        ]
+        if not any(domain in parsed_url.netloc for domain in legal_domains):
+            raise HTTPException(
+                status_code=403, 
+                detail="URL domain not in allowed legal sources"
+            )
+
+        # Fetch content (async with timeout)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            
+            # Extract clean text
             soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Remove unwanted elements (scripts, styles, etc.)
+            for element in soup(["script", "style", "nav", "footer"]):
+                element.decompose()
+                
             text = soup.get_text(separator='\n', strip=True)
+
+        # Split document
+        doc = Document(
+            page_content=text,
+            metadata={
+                "source": url,
+                "domain": parsed_url.netloc,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
         
-        doc = Document(page_content=text, metadata={"source": url})
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,  # Better for legal texts
+            chunk_overlap=200,
+            length_function=len
+        )
         split_docs = text_splitter.split_documents([doc])
+
+        # Store in vector DB
         vectordb.add_documents(split_docs)
         vectordb.persist()
-        
-        return {"message": f"Added {len(split_docs)} chunks from {url}"}
+
+        return {
+            "message": f"Added {len(split_docs)} chunks from {url}",
+            "metadata": doc.metadata
+        }
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Source website returned error: {str(e)}"
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not connect to URL: {str(e)}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Processing error: {str(e)}"
+        )
+
+
