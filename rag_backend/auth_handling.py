@@ -125,20 +125,13 @@ app.add_middleware(
         "http://localhost:8081",
         "https://legal-qa-frontend-754457156890.us-central1.run.app",
         "https://ai-lawyers-influencers-809263430963.us-central1.run.app",
+        "*",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
-
-@app.options("/ask", response_model=dict)
-async def options_ask():
-    return {"message": "OK"}
-
-@app.options("/token", response_model=dict)
-async def options_token():
-    return {"message": "OK"}
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")

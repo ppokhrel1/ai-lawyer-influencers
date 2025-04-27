@@ -22,6 +22,8 @@ from langchain.globals import set_llm_cache
 from langchain.vectorstores import PGVector
 import gcsfs
 from langchain_community.document_loaders import DirectoryLoader, GCSDirectoryLoader, TextLoader
+from pdf_handling import *
+
 
 set_llm_cache(InMemoryCache())  # Reduce ChromaDB memory usage
 
@@ -29,7 +31,6 @@ set_llm_cache(InMemoryCache())  # Reduce ChromaDB memory usage
 class AddUrlRequest(BaseModel):
     url: str
 
-from pdf_handling import *
 #app = FastAPI()
 
 # Configuration
