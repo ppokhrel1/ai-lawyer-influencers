@@ -32,9 +32,6 @@ import time
 import random
 import uuid
 
-previous_answers = []
-previous_tokens = []
-
 metrics_client = vectordb._client
 metrics_collection = metrics_client.get_or_create_collection("metrics")
 
@@ -136,15 +133,16 @@ async def ask_question(
         # Measure the latency for the QA process
         latency = time.time() - start
 
-        drift_detected = check_model_drift(answer, previous_answers)
-        token_drift_detected = check_token_drift(current_tokens, previous_tokens)
-
+        
 
         # Check token length and other metrics for model drift
         metadatas = metrics_collection.get().get("metadatas", [])
         previous_answers = [entry["answer_length"] for entry in metadatas] if metadatas else []
         previous_tokens = [entry["token_length"] for entry in metadatas] if metadatas else []
         # Drift detection
+        drift_detected = check_model_drift(answer, previous_answers)
+        token_drift_detected = check_token_drift(current_tokens, previous_tokens)
+
 
         question_id = str(uuid.uuid4()) # Generate a unique ID for the question
 
