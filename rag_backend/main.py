@@ -168,6 +168,7 @@ async def ask_question(
             ids=[question_id]
         )
 
+
         # Save conversation memory
         if user:
             convo_doc = Document(
