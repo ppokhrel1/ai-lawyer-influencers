@@ -14,7 +14,6 @@ import requests
 import os
 from pydantic import BaseModel
 import numpy as np
-from langchain_core.documents import Document
 import chromadb
 
 from langchain.cache import InMemoryCache
@@ -26,8 +25,6 @@ from pdf_handling import *
 from metrics.check_metrics import *
 from models.vectordb_setup import *
 import time
-import datetime
-
 import random
 import uuid
 
@@ -51,27 +48,21 @@ class AddUrlRequest(BaseModel):
 
 
 
-# Initialize LLM
-try:
-    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL, use_fast=False)
-    model = AutoModelForSeq2SeqLM.from_pretrained(LLM_MODEL)
-    pipe = pipeline(
-        "text2text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        max_new_tokens=512,
-        temperature=0.3
-    )
-    llm = HuggingFacePipeline(pipeline=pipe)
-except Exception as e:
-    raise RuntimeError(f"Failed to initialize LLM: {str(e)}")
 
-# Create QA Chain
-qa_chain = RetrievalQA.from_chain_type(
-    llm=llm,
-    retriever=vectordb.as_retriever(search_kwargs={'k': 2}),
-    chain_type="stuff"
-)
+def check_model_drift(current_answer, previous_answers):
+    # Example metric: checking answer length variance
+    # Handle the case where answer_length might be an integer
+    previous_lengths = [len(str(a)) if isinstance(a, str) else a for a in previous_answers]
+    drift = np.abs(np.mean(previous_lengths) - len(str(current_answer)))
+    return drift > 0.2  # Arbitrary threshold for drift
+
+def check_token_drift(current_tokens, previous_tokens):
+    # Check the difference in token lengths (can represent content change)
+    token_drift = np.abs(np.mean([len(tokens) if isinstance(tokens, str) else tokens for tokens in previous_tokens]) - current_tokens)
+    return token_drift > 0.2  # Threshold can be adjusted
+
+
+
 
 class QuestionRequest(BaseModel):
     question: str
@@ -94,7 +85,7 @@ async def ask_question(
     try:
         # Choose retriever
         if user:
-            user_db   = Chroma(
+            user_db = Chroma(
                 persist_directory=CHROMA_DIR,
                 embedding_function=embeddings,
                 collection_name=user.username
@@ -103,21 +94,61 @@ async def ask_question(
         else:
             retriever = vectordb.as_retriever()
 
-        # A/B routing
+
+        # Fetch relevant docs
+        docs = retriever.get_relevant_documents(request.question)
+
+        # Combine the contents of the documents into a single context string
+        context = "\n\n".join([d.page_content for d in docs])
+
+
+
+        # A/B routing logic (choose between production and shadow LLM)
         start = time.time()
         if random.random() < 0.2:
             chosen_llm, model_type = shadow_llm, "shadow"
         else:
-            chosen_llm, model_type = llm,        "production"
+            chosen_llm, model_type = llm, "production"
 
+        # Pass the context and question to the QA chain
         qa = RetrievalQA.from_chain_type(
             llm=chosen_llm,
             retriever=retriever,
             chain_type="stuff",
-            chain_type_kwargs={"prompt": PROMPT_TEMPLATE}
+            chain_type_kwargs={
+                "prompt": PROMPT_TEMPLATE,
+                "document_variable_name": "context" # Key to inject documents into the prompt
+
+            }
         )
-        answer = qa.run(request.question)
+
+        # Invoke the QA pipeline
+        result = await qa.ainvoke({
+            "context": context,  # The context gathered from relevant docs
+            "query": request.question  # The user query
+        }) # Use "query" as the default input key
+
+
+        print(result)
+        # Extract the answer from the result
+        answer = result["result"]
+        answer = answer.split('<|assistant|>')[-1].strip()
+
+        tokenizer = llm.pipeline.tokenizer
+        current_tokens = len(tokenizer.encode(answer))  # Ensure tokenizer works with strings
+        # Measure the latency for the QA process
         latency = time.time() - start
+
+        # Check token length and other metrics for model drift
+        metadatas = metrics_collection.get().get("metadatas", [])
+        previous_answers = [entry["answer_length"] for entry in metadatas] if metadatas else []
+        previous_tokens = [entry["token_length"] for entry in metadatas] if metadatas else []
+        # Drift detection
+        if previous_answers and previous_tokens:
+            drift_detected = check_model_drift(answer, previous_answers)
+            token_drift_detected = check_token_drift(current_tokens, previous_tokens)
+        else:
+            drift_detected = token_drift_detected = False
 
         # *** Log into metrics collection ***
         metrics_collection.add(
@@ -126,11 +157,13 @@ async def ask_question(
                 "model": model_type,
                 "response_time": latency,
                 "timestamp": time.time(),
-                "user": user.username if user else 'guest'
+                "answer_length": len(str(answer)),  # Ensure answer is treated as a string
+                "token_length": current_tokens,
+                "drift": bool(drift_detected),
+                "token_drift": bool(token_drift_detected),
             }],
             ids=[str(uuid.uuid4())]
         )
-        #metrics_collection.persist()
 
         # Save conversation memory
         if user:
@@ -145,6 +178,8 @@ async def ask_question(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
 
 
 @app.post("/add_url_test")

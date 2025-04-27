@@ -57,6 +57,7 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /app/models
 
 # Download and organize models properly
+# Download and organize models properly
 RUN python -c "\
 from sentence_transformers import SentenceTransformer; \
 model = SentenceTransformer('sentence-transformers/distilbert-base-nli-mean-tokens'); \
@@ -68,7 +69,6 @@ model = AutoModelForSeq2SeqLM.from_pretrained('t5-small'); \
 tokenizer = AutoTokenizer.from_pretrained('t5-small'); \
 model.save_pretrained('/app/models/flan-t5-base'); \
 tokenizer.save_pretrained('/app/models/flan-t5-base')"
-
 
 RUN ls -l /app/models/flan-t5-base && \
     echo "Tokenizer config:" && \
@@ -82,14 +82,7 @@ ENV TRANSFORMERS_OFFLINE=1 \
 
 RUN ls -l /app/models
 
-RUN python -c "\
-from sentence_transformers import SentenceTransformer; \
-SentenceTransformer('/app/models/minilm'); \
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer; \
-model = AutoModelForSeq2SeqLM.from_pretrained('/app/models/flan-t5-base'); \
-tokenizer = AutoTokenizer.from_pretrained('/app/models/flan-t5-base', use_fast=False); \
-from transformers import pipeline; \
-pipeline('text2text-generation', model=model, tokenizer=tokenizer)"
+
 
 # Verify models are accessible
 COPY . .

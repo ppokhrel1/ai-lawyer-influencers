@@ -12,6 +12,7 @@ from langchain.schema import Document
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 from langchain import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering, pipeline
 
 # reduce in-memory cache usage
 set_llm_cache(InMemoryCache())
@@ -70,23 +71,41 @@ if not os.path.exists(os.path.join(CHROMA_DIR, "index")):
     vectordb.persist()
 
 # ── LLM LOADING ─────────────────────────────────────────────────────────────────
+
 def _load_llm(model_name: str, temp: float) -> HuggingFacePipeline:
-    tok   = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+    # Load the tokenizer and model for text generation
+    tok = AutoTokenizer.from_pretrained(model_name, use_fast=False)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    hf_pipe = pipeline(
-        "text2text-generation",
+
+    # Create the text generation pipeline
+    generator = pipeline(
+        "text-generation",
         model=model,
         tokenizer=tok,
-        max_new_tokens=int(os.getenv("LLM_MAX_NEW_TOKENS", "512")),
-        temperature=temp
+        max_length=512,  # Adjust as needed
+        temperature=temp,
     )
-    return HuggingFacePipeline(pipeline=hf_pipe)
 
-llm        = _load_llm(LLM_MODEL, float(os.getenv("LLM_TEMPERATURE", "0.3")))
-shadow_llm = _load_llm(SHADOW_LLM_MODEL, float(os.getenv("SHADOW_LLM_TEMPERATURE", "0.7")))
+    # Wrap the pipeline in HuggingFacePipeline
+    llm = HuggingFacePipeline(pipeline=generator)
+    return llm, tok
+
+
+llm, tokenizer        = _load_llm(LLM_MODEL, float(os.getenv("LLM_TEMPERATURE", "0.3")))
+shadow_llm, tokenizer = _load_llm(SHADOW_LLM_MODEL, float(os.getenv("SHADOW_LLM_TEMPERATURE", "0.7")))
 
 # ── PROMPT TEMPLATE ─────────────────────────────────────────────────────────────
+template = """<|system|>
+You are a helpful assistant that answers questions based on the provided context.
+If the context does not contain the answer, truthfully and concisely say "The answer is not available in the provided context."
+You should only use information from the context and answer in your own words. Do not repeat the question verbatim.
+<|user|>
+Context: {context}
+Question: {question}
+<|assistant|>"""
+
+
 PROMPT_TEMPLATE = PromptTemplate(
-    template=f"{SYSTEM_PROMPT}\n\n{{context}}\n\nQuestion: {{question}}\nAnswer:",
-    input_variables=["context","question"]
+    template=template,
+    input_variables=["context", "question"]
 )
