@@ -8,7 +8,7 @@ from typing import Optional
 import databases
 import sqlalchemy
 from urllib.parse import quote_plus
-
+from fastapi.middleware.cors import CORSMiddleware
 import os
 
 # Cloud SQL connection strings (from environment variables)
@@ -116,16 +116,30 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 app = FastAPI()
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8080",
-        "https://legal-qa-frontend-754457156890.us-central1.run.app/"
+        "http://localhost:5173",
+        "http://localhost:8081",
+        "https://legal-qa-frontend-754457156890.us-central1.run.app",
+        "https://ai-lawyers-influencers-809263430963.us-central1.run.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+@app.options("/ask", response_model=dict)
+async def options_ask():
+    return {"message": "OK"}
+
+@app.options("/token", response_model=dict)
+async def options_token():
+    return {"message": "OK"}
+
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
