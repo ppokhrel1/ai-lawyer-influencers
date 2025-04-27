@@ -24,11 +24,24 @@ from langchain_community.document_loaders import DirectoryLoader, GCSDirectoryLo
 from pdf_handling import *
 from metrics.check_metrics import *
 from models.vectordb_setup import *
+from metrics.feedback import feedback_router  # Import the new router
+from metrics.drift_analysis import drift_router
+from helpers.helpers import *
+
 import time
 import random
 import uuid
 
+previous_answers = []
+previous_tokens = []
+
+metrics_client = vectordb._client
+metrics_collection = metrics_client.get_or_create_collection("metrics")
+
+
 app.include_router(monitoring_router, prefix="/monitoring", tags=["monitoring"])
+app.include_router(feedback_router, prefix="/feedback", tags=["feedback"]) # Include the feedback router
+app.include_router(drift_router, prefix="/drift", tags=["drift_analysis"])
 
 from urllib.parse import urlparse
 import httpx  # Better async alternative to requests
@@ -45,22 +58,6 @@ class AddUrlRequest(BaseModel):
 # Configuration
 # EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # LLM_MODEL = "google/flan-t5-base"
-
-
-
-
-def check_model_drift(current_answer, previous_answers):
-    # Example metric: checking answer length variance
-    # Handle the case where answer_length might be an integer
-    previous_lengths = [len(str(a)) if isinstance(a, str) else a for a in previous_answers]
-    drift = np.abs(np.mean(previous_lengths) - len(str(current_answer)))
-    return drift > 0.2  # Arbitrary threshold for drift
-
-def check_token_drift(current_tokens, previous_tokens):
-    # Check the difference in token lengths (can represent content change)
-    token_drift = np.abs(np.mean([len(tokens) if isinstance(tokens, str) else tokens for tokens in previous_tokens]) - current_tokens)
-    return token_drift > 0.2  # Threshold can be adjusted
-
 
 
 
@@ -139,16 +136,17 @@ async def ask_question(
         # Measure the latency for the QA process
         latency = time.time() - start
 
+        drift_detected = check_model_drift(answer, previous_answers)
+        token_drift_detected = check_token_drift(current_tokens, previous_tokens)
+
+
         # Check token length and other metrics for model drift
         metadatas = metrics_collection.get().get("metadatas", [])
         previous_answers = [entry["answer_length"] for entry in metadatas] if metadatas else []
         previous_tokens = [entry["token_length"] for entry in metadatas] if metadatas else []
         # Drift detection
-        if previous_answers and previous_tokens:
-            drift_detected = check_model_drift(answer, previous_answers)
-            token_drift_detected = check_token_drift(current_tokens, previous_tokens)
-        else:
-            drift_detected = token_drift_detected = False
+
+        question_id = str(uuid.uuid4()) # Generate a unique ID for the question
 
         # *** Log into metrics collection ***
         metrics_collection.add(
@@ -161,8 +159,13 @@ async def ask_question(
                 "token_length": current_tokens,
                 "drift": bool(drift_detected),
                 "token_drift": bool(token_drift_detected),
+                "question_id": question_id,
+                "prod_answer": answer if model_type == "production" else "",
+                "shadow_answer": answer if model_type == "shadow" else "",
+                "retrieved_documents_prod": [doc.page_content for doc in docs] if model_type == "production" else [],
+                "retrieved_documents_shadow": [doc.page_content for doc in docs] if model_type == "shadow" else [],
             }],
-            ids=[str(uuid.uuid4())]
+            ids=[question_id]
         )
 
         # Save conversation memory

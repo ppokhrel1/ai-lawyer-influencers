@@ -53,7 +53,7 @@ embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
 if IS_LOCAL:
     loader = DirectoryLoader(DOCUMENT_PATH, glob="**/*.txt", loader_cls=TextLoader)
 else:
-    loader = GCSDirectoryLoader(bucket_name=GCS_BUCKET, prefix="docs/")
+    loader = GCSDirectoryLoader('ai-lawyers-influencers', GCS_BUCKET)
 
 docs   = loader.load()
 chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)\
@@ -109,3 +109,5 @@ PROMPT_TEMPLATE = PromptTemplate(
     template=template,
     input_variables=["context", "question"]
 )
+
+
