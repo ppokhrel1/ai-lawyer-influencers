@@ -126,6 +126,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # Database connection
