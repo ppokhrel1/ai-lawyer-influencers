@@ -1,13 +1,20 @@
 from fastapi import UploadFile, File
 from typing import List
 import pytesseract
-from PIL import Image
 import pdfplumber
 import io
 import os
 from auth_handling import *
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
-from fastapi import Body, HTTPException, Depends
+from io import BytesIO
+from PIL import Image
+import pytesseract
+import fitz  # PyMuPDF
+from bs4 import BeautifulSoup
+import requests
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 # Add to dependencies
 #pip install pdfplumber pytesseract pillow python-multipart
@@ -100,21 +107,29 @@ async def delete_document(
     return {"message": "Document deleted"}
 
 
-# Update existing add_url endpoint to handle PDF URLs
-from fastapi import Body, HTTPException, Depends
-from pydantic import BaseModel
-
-# Define the Pydantic model for the request body
+# Pydantic model for the request body
 class UrlRequest(BaseModel):
     url: str
 
+def extract_text_from_pdf(pdf_content: bytes) -> str:
+    doc = fitz.open(stream=pdf_content, filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
+
+def extract_text_from_image(image_content: bytes) -> str:
+    image = Image.open(BytesIO(image_content))
+    text = pytesseract.image_to_string(image)
+    return text
+
 @app.post("/add_url")
 async def add_url(
-    url_request: UrlRequest,  # Use the Pydantic model here
+    url_request: UrlRequest,  # Pydantic model for URL
     current_user: User = Depends(get_current_user)
 ):
     try:
-        url = url_request.url  # Extract URL from the request body
+        url = url_request.url
         response = requests.get(url, stream=True)
         response.raise_for_status()
         
@@ -137,4 +152,3 @@ async def add_url(
         return {"message": f"Added {len(split_docs)} chunks from {url}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-

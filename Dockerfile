@@ -46,9 +46,12 @@ RUN pip install --no-cache-dir \
     pg8000 \
     gcsfs  \
     pgvector \
-    psycopg2-binary \
+    psycopg2-binary PyMuPDF Pillow pytesseract \
     alembic \
     --extra-index-url https://download.pytorch.org/whl/cpu
+
+RUN apt-get update && apt-get install -y \
+    tesseract-ocr
 
 # Create models directory
 RUN mkdir -p /app/models
