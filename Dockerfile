@@ -65,9 +65,9 @@ model = SentenceTransformer('sentence-transformers/distilbert-base-nli-mean-toke
 model.save('/app/models/minilm')"
 
 RUN python -c "\
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, AutoModel; \
-model = AutoModel.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0'); \
-tokenizer = AutoTokenizer.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0'); \
+from transformers import AutoModelForCausalLM, AutoTokenizer; \
+model = AutoModelForCausalLM.from_pretrained('distilgpt2'); \
+tokenizer = AutoTokenizer.from_pretrained('distilgpt2'); \
 model.save_pretrained('/app/models/flan-t5-base'); \
 tokenizer.save_pretrained('/app/models/flan-t5-base')"
 

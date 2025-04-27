@@ -74,9 +74,9 @@ if not os.path.exists(os.path.join(CHROMA_DIR, "index")):
 
 def _load_llm(model_name: str, temp: float) -> HuggingFacePipeline:
     # Load the tokenizer and model for text generation
-    tokenizer = AutoTokenizer.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL)
     model = AutoModelForCausalLM.from_pretrained(
-        "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        LLM_MODEL,
         device_map=None,  # <- no auto device map
         low_cpu_mem_usage=False,  # <- optional, just to be explicit
         torch_dtype="auto"  # <- will use float32
