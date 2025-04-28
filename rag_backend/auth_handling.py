@@ -32,24 +32,8 @@ if IS_LOCAL:
     database = databases.Database(AUTH_DB_URL)
 
 else:
-    AUTH_DB_USER = os.getenv("AUTH_DB_USER", "postgres")
-    AUTH_DB_PASS = os.getenv("AUTH_DB_PASS", "")
-    AUTH_DB_CONN = os.getenv("AUTH_DB_CONN", "")
-    AUTH_DB_NAME = os.getenv("AUTH_DB_NAME", "postgres")
 
-    # Use Cloud SQL Unix socket path
-    unix_socket_path = f"/cloudsql/{AUTH_DB_CONN}"
-
-    AUTH_DB_URL = (
-        f"postgresql+pg8000://"
-        f"{AUTH_DB_USER}:{quote_plus(AUTH_DB_PASS)}"
-        f"@/{AUTH_DB_NAME}"
-    )
-    AUTH_DB_URL = (
-        f"postgresql://{AUTH_DB_USER}:{quote_plus(AUTH_DB_PASS)}"
-        f"@/{AUTH_DB_NAME}"
-        f"?host=/cloudsql/{AUTH_DB_CONN}"
-    )
+    AUTH_DB_URL = os.getenv("AUTH_DB_URL", "postgres")
     engine = sqlalchemy.create_engine(
         AUTH_DB_URL,
         pool_size=5,

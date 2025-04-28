@@ -1,10 +1,8 @@
 substitutions:
-  _DB_USER: "auth_master"
-  _DB_PASSWORD: "_REPLACE_WITH_AUTH_DB_PASSWORD"
-  _CHROMA_DB_USER: "chroma_master"
-  _CHROMA_DB_PASSWORD: "_REPLACE_WITH_CHROMA_DB_PASSWORD"
-  _DOCUMENT_PATH:       "ai-lawyers-influencers-vector-store/docs"
-  _CHROMA_DIR:          "/tmp/chroma"
+  _DOCUMENT_PATH:     "ai-lawyers-influencers-vector-store/docs"
+  _CHROMA_DIR:        "/tmp/chroma"
+  _CHROMA_DB_URL: "_REPLACE_WITH_AIVEN_CHROMA_URL"
+  _AUTH_DB_URL: "_REPLACE_WITH_AIVEN_CHROMA_URL"
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -20,80 +18,6 @@ steps:
           PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" \
             --format="value(projectNumber)")
           echo "PROJECT_NUMBER=$PROJECT_NUMBER" > /workspace/project_number.env
-
- 
-  # ── 3) Provision Cloud SQL for Auth DB ─────────────────────────────────────────
-  - id: "provision-auth-sql"
-    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: "bash"
-    args:
-      - -c
-      - |
-          if ! gcloud sql instances describe fastapi-auth-db > /dev/null 2>&1; then
-            echo "Creating Cloud SQL instance: fastapi-auth-db"
-            gcloud sql instances create fastapi-auth-db \
-              --database-version=POSTGRES_13 \
-              --tier=db-f1-micro \
-              --region=us-central1
-          fi
-
-  # ── 4) Init Auth DB & user ──────────────────────────────────────────────────────
-  - id: "init-auth-db"
-    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: "bash"
-    args:
-      - -c
-      - |
-          if ! gcloud sql databases describe auth_db --instance=fastapi-auth-db > /dev/null 2>&1; then
-            gcloud sql databases create auth_db --instance=fastapi-auth-db
-          fi
-
-          if ! gcloud sql users list --instance=fastapi-auth-db | grep -q ${_DB_USER}; then
-            gcloud sql users create ${_DB_USER} \
-              --instance=fastapi-auth-db \
-              --password=${_DB_PASSWORD}
-          else
-            gcloud sql users set-password ${_DB_USER} \
-              --instance=fastapi-auth-db \
-              --password=${_DB_PASSWORD}
-          fi
-
-  # ── 5) Provision ChromaDB SQL ──────────────────────────────────────────────────
-  - id: "provision-chroma-sql"
-    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: "bash"
-    args:
-      - -c
-      - |
-          if ! gcloud sql instances describe chromadb-sql-db > /dev/null 2>&1; then
-            gcloud sql instances create chromadb-sql-db \
-              --database-version=POSTGRES_13 \
-              --tier=db-f1-micro \
-              --region=us-central1
-          fi
-
-  # ── 6) Init ChromaDB & user ─────────────────────────────────────────────────────
-  - id: "init-chroma-db"
-    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: "bash"
-    args:
-      - -c
-      - |
-          if ! gcloud sql databases describe chromadb_db --instance=chromadb-sql-db > /dev/null 2>&1; then
-            gcloud sql databases create chromadb_db --instance=chromadb-sql-db
-          fi
-
-          if ! gcloud sql users list --instance=chromadb-sql-db | grep -q ${_CHROMA_DB_USER}; then
-            gcloud sql users create ${_CHROMA_DB_USER} \
-              --instance=chromadb-sql-db \
-              --password=${_CHROMA_DB_PASSWORD}
-          else
-            gcloud sql users set-password ${_CHROMA_DB_USER} \
-              --instance=chromadb-sql-db \
-              --password=${_CHROMA_DB_PASSWORD}
-          fi
-
-
 
   # ── 7) Build & Push Docker Image ───────────────────────────────────────────────
   - id: "build"
@@ -114,16 +38,11 @@ steps:
           # bring PROJECT_NUMBER into scope
           source /workspace/project_number.env
 
-          AUTH_CONN=$(gcloud sql instances describe fastapi-auth-db \
-            --format="value(connectionName)")
-          CHROMA_CONN=$(gcloud sql instances describe chromadb-sql-db \
-            --format="value(connectionName)")
-
+        
           gcloud run deploy ai-lawyers-influencers \
             --image gcr.io/$PROJECT_ID/ai-lawyers-influencers \
             --platform managed \
             --region us-central1 \
             --memory=2Gi \
             --allow-unauthenticated \
-            --add-cloudsql-instances="$$AUTH_CONN","$$CHROMA_CONN" \
-            --set-env-vars=PROJECT_NUMBER=$$PROJECT_NUMBER,AUTH_DB_CONN=$$AUTH_CONN,AUTH_DB_USER=${_DB_USER},AUTH_DB_PASS=${_DB_PASSWORD},AUTH_DB_NAME=auth_db,CHROMA_DB_CONN=$$CHROMA_CONN,CHROMA_DB_USER=${_CHROMA_DB_USER},CHROMA_DB_PASS=${_CHROMA_DB_PASSWORD},CHROMA_DB_NAME=chromadb_db,CHROMA_DIR=${_CHROMA_DIR},DOCUMENT_PATH=${_DOCUMENT_PATH} 
+            --set-env-vars=PROJECT_NUMBER=$$PROJECT_NUMBER,AUTH_DB_URL=${_AUTH_DB_URL},CHROMA_DB_URL=${_CHROMA_DB_URL},CHROMA_DIR=${_CHROMA_DIR},DOCUMENT_PATH=${_DOCUMENT_PATH}
