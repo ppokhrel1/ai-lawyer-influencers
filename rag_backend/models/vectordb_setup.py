@@ -13,6 +13,9 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 from langchain import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
 from transformers import AutoTokenizer, AutoModelForQuestionAnswering, pipeline, BitsAndBytesConfig, AutoModelForCausalLM
+import torch
+from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
 
 # reduce in-memory cache usage
 set_llm_cache(InMemoryCache())
@@ -47,7 +50,9 @@ SYSTEM_PROMPT         = os.getenv("SYSTEM_PROMPT", "You are a helpful legal assi
 
 
 # ── EMBEDDINGS ──────────────────────────────────────────────────────────────────
-embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL,
+    model_kwargs={"device": "cpu"},
+    encode_kwargs={"batch_size": 1})
 
 # ── LOAD & SPLIT ─────────────────────────────────────────────────────────────────
 if IS_LOCAL:
@@ -56,7 +61,7 @@ else:
     loader = GCSDirectoryLoader('ai-lawyers-influencers', GCS_BUCKET)
 
 docs   = loader.load()
-chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)\
+chunks = RecursiveCharacterTextSplitter(chunk_size=100, chunk_overlap=50)\
              .split_documents(docs or [Document(page_content="seed document")])
 
 # ── VECTORSTORE ─────────────────────────────────────────────────────────────────
@@ -65,16 +70,45 @@ vectordb = Chroma.from_documents(
     embedding=embeddings,
     persist_directory=CHROMA_DIR,
 )
+
 # cold-start: only first run
 if not os.path.exists(os.path.join(CHROMA_DIR, "index")):
     vectordb.add_documents(chunks)
     vectordb.persist()
 
+
+
+# 1. Optimized Memory Initialization
+memory = ConversationBufferMemory(
+    memory_key="chat_history",
+    input_key="question",
+    output_key="answer",  # Must match chain's output key
+    return_messages=True,
+    #max_token_limit=200,  # Keep last 2-3 exchanges
+    k=2,
+    ai_prefix="QA Agent",
+    human_prefix="User"
+)
+
+# 3. System Message Injection (Improved)
+if not memory.chat_memory.messages:
+    memory.chat_memory.add_ai_message(
+        """QA Agent System Instructions:
+1. Answer concisely based on context when available
+2. For knowledge questions without context, provide factual answers
+3. If uncertain, say "I don't have enough information"
+4. Never hallucinate details"""
+    )
+
+
 # ── LLM LOADING ─────────────────────────────────────────────────────────────────
 
 def _load_llm(model_name: str, temp: float) -> HuggingFacePipeline:
+    torch.set_num_threads(1)
+    torch.set_grad_enabled(False)
+
     # Load the tokenizer and model for text generation
-    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL)
+    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL, use_fast=True)
     model = AutoModelForCausalLM.from_pretrained(
         LLM_MODEL,
         device_map=None,  # <- no auto device map
@@ -83,12 +117,15 @@ def _load_llm(model_name: str, temp: float) -> HuggingFacePipeline:
     )
 
     pipe = pipeline(
-        "text-generation",
+        "text2text-generation",
         model=model,
         tokenizer=tokenizer,
-        max_new_tokens=256,
+        max_new_tokens=128,
         temperature=temp,
-        do_sample=True
+        do_sample=True,
+        truncation=True,
+        max_length=150,
+        pad_token_id=50256  # EOS token for most models
     )
 
     llm = HuggingFacePipeline(pipeline=pipe)
@@ -99,18 +136,12 @@ llm, tokenizer        = _load_llm(LLM_MODEL, float(os.getenv("LLM_TEMPERATURE", 
 shadow_llm, tokenizer = _load_llm(SHADOW_LLM_MODEL, float(os.getenv("SHADOW_LLM_TEMPERATURE", "0.7")))
 
 # ── PROMPT TEMPLATE ─────────────────────────────────────────────────────────────
-template = """<|system|>
-You are a helpful assistant that answers questions based on the provided context.
-
-
-Use the provided context to answer the question as accurately as possible.
-If the context does not contain the answer, use your own knowledge to generate the best possible response.
-
-<|user|>
+template = """Extract or answer based on this context:
 Context: {context}
-Question: {question}
 
-<|assistant|>"""
+Question: {question}
+Answer (1 sentence, be specific):
+"""
 
 
 

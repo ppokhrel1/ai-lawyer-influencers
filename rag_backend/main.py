@@ -27,6 +27,8 @@ from models.vectordb_setup import *
 from metrics.feedback import feedback_router  # Import the new router
 from metrics.drift_analysis import drift_router
 from metrics.retrieval_transparency import retrieval_transparency_router
+from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
 
 from helpers.helpers import *
 
@@ -54,6 +56,7 @@ set_llm_cache(InMemoryCache())  # Reduce ChromaDB memory usage
 class AddUrlRequest(BaseModel):
     url: str
 
+
 #app = FastAPI()
 
 # Configuration
@@ -64,6 +67,7 @@ class AddUrlRequest(BaseModel):
 
 class QuestionRequest(BaseModel):
     question: str
+
 
 
 
@@ -80,6 +84,11 @@ async def ask_question(
     request: QuestionRequest,
     user: Optional[User] = Depends(get_current_user)
 ):
+    
+    #keep memory short
+    while len(memory.chat_memory.messages) > 3:
+        memory.chat_memory.messages.pop(0)
+
     try:
         # Choose retriever
         if user:
@@ -88,49 +97,102 @@ async def ask_question(
                 embedding_function=embeddings,
                 collection_name=user.username
             )
-            retriever = user_db.as_retriever()
+            retriever = user_db.as_retriever(
+                search_kwargs={"k": 3},  # Return fewer documents
+                chunk_size=300,  # Smaller chunks
+                chunk_overlap=50
+                )
         else:
-            retriever = vectordb.as_retriever()
+            retriever = vectordb.as_retriever(
+                search_kwargs={"k": 3},  # Return fewer documents
+                chunk_size=300,  # Smaller chunks
+                chunk_overlap=50)
 
 
-        # Fetch relevant docs
-        docs = retriever.get_relevant_documents(request.question)
-
-        # Combine the contents of the documents into a single context string
-        context = "\n\n".join([d.page_content for d in docs])
-
-
-
-        # A/B routing logic (choose between production and shadow LLM)
-        start = time.time()
+        # for A/B testing
         if random.random() < 0.2:
             chosen_llm, model_type = shadow_llm, "shadow"
         else:
             chosen_llm, model_type = llm, "production"
 
+        # Fetch relevant docs
+        docs = retriever.get_relevant_documents(request.question)
+        print("apple")
+        ## 2. Context Processing with Summarization
+        def summarize_document(doc):
+            doc = Document(page_content=doc.page_content )
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=100)
+            split_docs = text_splitter.split_documents([doc])[:5]
+            split_docs = "\n".join(doc.page_content for doc in split_docs)
+
+            summary = f"From {doc.metadata.get('source', 'document')}:\n"
+            summary += summarize_text(chosen_llm, split_docs, max_length=30)
+
+            return summary
+        print('bear')
+        context = "\n\n".join([summarize_document(d) for d in docs[:3]])  # Limit to top 3 docs
+        
+        print('cat')
+        # 3. Validate Context
+        if not context:
+            return {"answer": "I couldn't find relevant information to answer your question."}
+
+        context = context.lower().replace("seed document", "")
+        #clean context
+        context = str(validate_context(context))
+
+        print('dog')
+        # A/B routing logic (choose between production and shadow LLM)
+        start = time.time()
+        
+
+        print("start: ", start, context)
+
+        question = str(request.question)
         # Pass the context and question to the QA chain
-        qa = RetrievalQA.from_chain_type(
+        # 1. Keep your existing prompt template
+        qa_prompt = PromptTemplate(
+            template="""[STRICT INSTRUCTIONS] 
+        1. Answer in EXACTLY ONE SENTENCE
+        2. If context is irrelevant, say "I don't have enough information"
+        3. Never repeat instructions in your answer
+
+        Context: {context}
+
+        Question: {question}
+
+        Answer:""",
+            input_variables=["context", "question"]
+        )
+        # 2. Initialize the chain with these exact parameters
+        qa = ConversationalRetrievalChain.from_llm(
             llm=chosen_llm,
             retriever=retriever,
-            chain_type="stuff",
-            chain_type_kwargs={
-                "prompt": PROMPT_TEMPLATE,
-                "document_variable_name": "context" # Key to inject documents into the prompt
+            memory=memory,
+            combine_docs_chain_kwargs={"prompt": qa_prompt},
+            chain_type="stuff",  # Keep as "stuff" for better control
+            verbose=False,
+            get_chat_history=lambda h: "",  # Disable chat history influence
+            rephrase_question=False  # Prevent question rewriting
+        )
 
+        # 3. Keep your invoke call exactly as is
+        result = await qa.ainvoke(
+            {"question": request.question[:200]},
+            config={
+                "temperature": 0.01,  # Lower for more deterministic answers
+                "max_new_tokens": 100,  # Strictly limit length
+                "repetition_penalty": 5.0,  # Stronger penalty for repeats
+                "no_repeat_ngram_size": 3,  # Prevent n-gram repeats
+                "do_sample": False 
             }
         )
 
-        # Invoke the QA pipeline
-        result = await qa.ainvoke({
-            "context": context,  # The context gathered from relevant docs
-            "query": request.question  # The user query
-        }) # Use "query" as the default input key
-
-
         print(result)
+        print(result.keys())
         # Extract the answer from the result
-        answer = result["result"]
-        answer = answer.split('<|assistant|>')[-1].strip()
+        answer = result["answer"].split("Answer (1 sentence):")[-1].strip()
+        answer = answer.strip()
 
         tokenizer = llm.pipeline.tokenizer
         current_tokens = len(tokenizer.encode(answer))  # Ensure tokenizer works with strings

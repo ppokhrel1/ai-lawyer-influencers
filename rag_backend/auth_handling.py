@@ -10,6 +10,7 @@ import sqlalchemy
 from urllib.parse import quote_plus
 from fastapi.middleware.cors import CORSMiddleware
 import os
+from contextlib import asynccontextmanager
 
 # Cloud SQL connection strings (from environment variables)
 
@@ -115,8 +116,22 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: Optional[str] = None
 
-app = FastAPI()
 
+
+# Add lifespan management
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load models at startup
+    app.state.llm = None
+    app.state.shadow_llm = None
+    yield
+    # Cleanup on shutdown
+    if app.state.llm:
+        del app.state.llm
+    if app.state.shadow_llm:
+        del app.state.shadow_llm
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

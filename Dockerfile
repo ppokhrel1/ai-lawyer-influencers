@@ -5,50 +5,13 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
-    poppler-utils \  
+    poppler-utils git \  
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir \
-    # Core web server
-    fastapi==0.109.2 \
-    uvicorn==0.27.0 \
-    
-    # File processing
-    pdfplumber==0.11.0 \
-    pillow==10.2.0 \
-    python-multipart==0.0.9 \
-    
-    # Database
-    aiosqlite==0.20.0 \
-    sqlalchemy==2.0.25 \
-    databases==0.9.0 \
-    
-    # Security
-    passlib[bcrypt]==1.7.4 \
-    python-jose[cryptography]==3.3.0 \
-    
-    # LangChain ecosystem (latest stable)
-    langchain==0.1.13 \
-    langchain-community==0.0.34 \
-    langchain-core==0.1.45 \
-    langchain-text-splitters==0.0.1 \
-    
-    # Embeddings
-    sentence-transformers==2.6.1 \
-    pytesseract \  
-    bs4 \ 
-    # LLM dependencies
-    transformers==4.38.2 \
-    torch==2.2.1+cpu \
-    sentencepiece \
-    chromadb[postgres] \
-    asyncpg  \
-    pg8000 \
-    gcsfs  \
-    pgvector \
-    psycopg2-binary PyMuPDF Pillow pytesseract \
-    alembic nltk \
-    --extra-index-url https://download.pytorch.org/whl/cpu
+
+COPY ./requirements.txt .
+
+RUN pip install -r ./requirements.txt
 
 RUN apt-get update && apt-get install -y \
     tesseract-ocr
@@ -61,7 +24,7 @@ RUN mkdir -p /app/models
 # Download and organize models properly
 RUN python -c "\
 from sentence_transformers import SentenceTransformer; \
-model = SentenceTransformer('sentence-transformers/distilbert-base-nli-mean-tokens'); \
+model = SentenceTransformer('sentence-transformers/msmarco-distilbert-base-v4'); \
 model.save('/app/models/minilm')"
 
 RUN python -c "\
@@ -70,6 +33,7 @@ model = AutoModelForCausalLM.from_pretrained('distilgpt2'); \
 tokenizer = AutoTokenizer.from_pretrained('distilgpt2'); \
 model.save_pretrained('/app/models/flan-t5-base'); \
 tokenizer.save_pretrained('/app/models/flan-t5-base')"
+
 
 RUN ls -l /app/models/flan-t5-base && \
     echo "Tokenizer config:" && \
