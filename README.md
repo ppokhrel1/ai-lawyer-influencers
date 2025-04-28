@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Deployed at](https://img.shields.io/badge/Deployed_at-https://legal--qa--frontend--754457156890.us--central1--run--app-blue)](https://legal-qa-frontend-754457156890.us-central1.run.app)
 
-This API is the backbone for keeping tabs on our legal QA models, gathering user insights, and spotting any performance dips. Built with FastAPI and ChromaDB, it gives us the observability we need to ensure our models are performing as expected and meeting user needs.
+This API is used to assess the health of QA models, gathering user insights, and spotting any performance dips. Built with FastAPI and ChromaDB, it gives us the observability we need to ensure our models are performing as expected and meeting user needs.
 
 ## Endpoints at a Glance
 
