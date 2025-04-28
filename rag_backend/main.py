@@ -117,7 +117,7 @@ async def ask_question(
 
         # Fetch relevant docs
         docs = retriever.get_relevant_documents(request.question)
-        print("apple")
+
         ## 2. Context Processing with Summarization
         def summarize_document(doc):
             doc = Document(page_content=doc.page_content )
@@ -129,10 +129,10 @@ async def ask_question(
             summary += summarize_text(chosen_llm, split_docs, max_length=30)
 
             return summary
-        print('bear')
+
         context = "\n\n".join([summarize_document(d) for d in docs[:3]])  # Limit to top 3 docs
         
-        print('cat')
+
         # 3. Validate Context
         if not context:
             return {"answer": "I couldn't find relevant information to answer your question."}
@@ -141,7 +141,6 @@ async def ask_question(
         #clean context
         context = str(validate_context(context))
 
-        print('dog')
         # A/B routing logic (choose between production and shadow LLM)
         start = time.time()
         
@@ -180,11 +179,11 @@ async def ask_question(
         result = await qa.ainvoke(
             {"question": request.question[:200]},
             config={
-                "temperature": 0.01,  # Lower for more deterministic answers
+                "temperature": 0.05,  # Lower for more deterministic answers
                 "max_new_tokens": 100,  # Strictly limit length
-                "repetition_penalty": 5.0,  # Stronger penalty for repeats
-                "no_repeat_ngram_size": 3,  # Prevent n-gram repeats
-                "do_sample": False 
+                "repetition_penalty": 50.0,  # Stronger penalty for repeats
+                "no_repeat_ngram_size": 2,  # Prevent n-gram repeats
+                "do_sample": True 
             }
         )
 

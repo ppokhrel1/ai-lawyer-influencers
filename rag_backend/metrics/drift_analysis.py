@@ -113,6 +113,6 @@ async def explore_drift_with_context(from_timestamp: Optional[float] = None, to_
                     },
                     "timestamp": metadata.get("timestamp")
                 })
-        return drift_data
+        return {'data': drift_data}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
