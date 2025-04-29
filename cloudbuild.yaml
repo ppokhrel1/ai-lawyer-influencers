@@ -2,7 +2,7 @@ substitutions:
   _DOCUMENT_PATH:     "ai-lawyers-influencers-vector-store/docs"
   _CHROMA_DIR:        "/tmp/chroma"
   _CHROMA_DB_URL: "_CHROMA_DB_URL"
-  _AUTH_DB_URL: "_CHROMA_DB_URL"
+  _AUTH_DB_URL: "_CHROMA_DB_URL" 
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -47,4 +47,3 @@ steps:
             --set-env-vars=PROJECT_NUMBER=$PROJECT_NUMBER,AUTH_DB_URL=${_AUTH_DB_URL},CHROMA_DB_URL=${_CHROMA_DB_URL},CHROMA_DIR=${_CHROMA_DIR},DOCUMENT_PATH=${_DOCUMENT_PATH}
 
 
-            
