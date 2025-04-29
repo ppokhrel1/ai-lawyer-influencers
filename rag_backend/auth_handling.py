@@ -105,15 +105,21 @@ class TokenData(BaseModel):
 # Add lifespan management
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load models at startup
-    app.state.llm = None
-    app.state.shadow_llm = None
-    yield
-    # Cleanup on shutdown
-    if app.state.llm:
-        del app.state.llm
-    if app.state.shadow_llm:
-        del app.state.shadow_llm
+    try:
+        await database.connect()
+        print("Database connected via lifespan.")  # Add this line for logging
+        # Load models at startup
+        app.state.llm = None
+        app.state.shadow_llm = None
+        yield
+    finally:
+        await database.disconnect()
+        print("Database disconnected via lifespan.")  # Add this line for logging
+        # Cleanup on shutdown
+        if app.state.llm:
+            del app.state.llm
+        if app.state.shadow_llm:
+            del app.state.shadow_llm
 
 app = FastAPI(lifespan=lifespan)
 
@@ -135,14 +141,6 @@ app.add_middleware(
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Database connection
-@app.on_event("startup")
-async def startup():
-    await database.connect()
-
-@app.on_event("shutdown")
-async def shutdown():
-    await database.disconnect()
 
 # Security functions
 def verify_password(plain_password, hashed_password):
